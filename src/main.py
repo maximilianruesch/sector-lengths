@@ -1,8 +1,13 @@
+import jax
 import jax.numpy as np
 import numpy
 from jax import jit
-from qgeo import GHZ, make_dm, ket
+from jax_qgeo import GHZ, make_dm, ket, number_of_qudits, purity
+import jax_qgeo.qcode_enum as qce
 from about_time import about_time
+import itertools as itt  # for combinatorics, choice, permutations, etc
+
+from sympy import symbols, lambdify
 
 """
 from sympy import symbols, lambdify, Sum, srepr, Identity, Array
@@ -12,7 +17,7 @@ from sympy.physics.quantum.density import Density
 from sympy.physics.quantum.trace import Tr
 """
 
-STATE_DIMENSION = 15
+STATE_DIMENSION = 10
 TARGET_DIMENSION = 4
 
 
@@ -22,18 +27,23 @@ def run():
 
     f = jit(calc_partial_trace, static_argnums=(1, 2,))
 
-    t1 = about_time(block_partial_trace, f, state, trace_subsystems, STATE_DIMENSION)
-    print(f"First pass: {t1.duration} seconds")
+    f2 = jit(calc_sector_lengths)
 
-    t2 = about_time(block_partial_trace, f, state, trace_subsystems, STATE_DIMENSION)
-    print(f"Second pass: {t2.duration} seconds")
+    traced_state = f(state, trace_subsystems, STATE_DIMENSION)
+    print(f2(traced_state))
 
-    state = ket("0" * STATE_DIMENSION, 2)
-    t3 = about_time(block_partial_trace, f, state, trace_subsystems, STATE_DIMENSION)
-    print(f"Third pass: {t3.duration} seconds")
-
-    t4 = about_time(block_partial_trace, f, state, trace_subsystems, STATE_DIMENSION)
-    print(f"Fourth pass: {t4.duration} seconds")
+    # t1 = about_time(block_partial_trace, f, state, trace_subsystems)
+    # print(f"First pass: {t1.duration} seconds")
+    #
+    # t2 = about_time(block_partial_trace, f, state, trace_subsystems)
+    # print(f"Second pass: {t2.duration} seconds")
+    #
+    # state = ket("0" * STATE_DIMENSION, 2)
+    # t3 = about_time(block_partial_trace, f, state, trace_subsystems)
+    # print(f"Third pass: {t3.duration} seconds")
+    #
+    # t4 = about_time(block_partial_trace, f, state, trace_subsystems)
+    # print(f"Fourth pass: {t4.duration} seconds")
 
     return
 
@@ -79,6 +89,45 @@ def calc_partial_trace(rho, trace_over, n):  # former ptrace_dim
 
     return trace.reshape(d_new, d_new)
 
+def calc_sector_lengths(rho):
+    """ obtains sector lenghts / weights trough purities and Rains transform
+            faster, and for arbitrary dimensions
+        """
+    n = TARGET_DIMENSION
+
+    Ap = np.zeros(n + 1)
+
+    for k in range(n + 1):
+        for red in all_kRDMs(rho, n=n, k=k):
+            Ap = Ap.at[k].set(Ap[k] + purity(red))
+
+    # transform (Rains) unitary to Shor-Laflamme primary enumerator
+    x_symbols = symbols("x0:%d" % (n + 1))
+
+    Wp = qce.make_enum(x_symbols, n)
+    W = qce.unitary_to_primary(Wp)
+    # A = qce.poly_coeffs(W)
+    A = qce.W_coeffs(W)
+    subs_A = [lambdify(x_symbols, el)(*Ap) for el in A]
+
+    return subs_A
+
+
+def all_kRDMs(rho, n, k=2, verbose=False):
+    """ generator of all reduced states of size k,
+        optionally padded with identities
+    """
+    l = numpy.arange(n)
+
+    # to:     trace over subs
+    # to_bar: subs in complement (what remains after partial tracing)
+    for to in itt.combinations(l, n - k):
+        to = list(to)
+        if verbose:
+            print('trace over', to)
+        rho_red = calc_partial_trace(rho, to, n)
+
+        yield rho_red
 
 """
 @partial(jit)
