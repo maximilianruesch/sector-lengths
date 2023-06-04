@@ -1,5 +1,6 @@
 from functools import partial
 
+import alive_progress
 import jax
 import jax.numpy as np
 import jax_qgeo
@@ -21,15 +22,26 @@ from sympy.physics.quantum.density import Density
 from sympy.physics.quantum.trace import Tr
 """
 
-STATE_DIMENSION = 4
+STATE_DIMENSION = 6
 TARGET_DIMENSION = 4
+STEP_SIZE_ALPHA = 0.0001
+NUM_ITERATIONS = 10000
 
 
 def run():
+    print("Grading function")
+    grad_func = value_and_grad(calc_target_sector_of_state)
+    print("JITing function")
+    grad_func_jitted = jit(grad_func)
+
+
     print("Starting random state construct")
     with about_time() as t2:
         state = jax_qgeo.rand_pure_state(STATE_DIMENSION)
     print(f"Random state construct took {t2.duration} seconds")
+    print(f"Size of the state: {len(state)}")
+    #print(f"Initial target sector: {grad_func_jitted(state)[0]}")
+    print(f"Purity of the state: {qgeo.purity(qgeo.make_dm(state))}")
     #print(f"Using state: {state}")
     #qgeo_state = qgeo.RCL(STATE_DIMENSION)
 
@@ -43,16 +55,23 @@ def run():
     #print(qgeo.sector_len_f(qgeo_traced_state))
     # print(f2(traced_state))
 
-    print("Grading function")
-    grad_func = grad(calc_target_sector_of_state)
-    print("JITing function")
-    grad_func_jitted = jit(grad_func)
     #print(make_jaxpr(grad_func_jitted)(state))
 
-    print("Computing Result")
+    print("Initially grading...")
     result = grad_func_jitted(state)
-    result.block_until_ready()
-    print(f"Result: {result}")
+    result[1].block_until_ready()
+    print("-----------------------------------------------------------------")
+    for _ in alive_progress.alive_it(range(NUM_ITERATIONS), force_tty=True):
+        result = grad_func_jitted(state)
+
+        new_state = compute_new_state(state, result[1])
+
+        state = new_state
+
+    # print(state)
+    print(f"Resulting sector length {TARGET_DIMENSION}: {grad_func_jitted(state)[0]}")
+    print(f"Original sector length {TARGET_DIMENSION}: {qgeo.sector_len_f(state)[TARGET_DIMENSION]}")
+    print(f"Resulting purity: {jax_qgeo.purity(jax_qgeo.make_dm(state))}")
 
     #for i in range(10):
     #    with about_time() as t:
@@ -166,6 +185,19 @@ def calc_target_sector_of_state(state):
     sector_lengths = calc_sector_lengths(traced_state)
 
     return sector_lengths[TARGET_DIMENSION]
+
+def compute_new_state(old_state, gradient):
+    normal_proj = old_state * np.vdot(gradient, old_state) / np.linalg.norm(old_state)
+    # print(normal_proj)
+    tangent_proj = gradient - normal_proj
+    # print(tangent_proj)
+
+    new_tangent_state = old_state + STEP_SIZE_ALPHA * tangent_proj
+
+    tangent_norm = np.linalg.norm(tangent_proj)
+    new_state = np.cos(tangent_norm) * new_tangent_state + np.sin(tangent_norm) * (tangent_proj / tangent_norm)
+
+    return new_state
 
 """
 @partial(jit)
