@@ -1,8 +1,12 @@
+from functools import partial
+
 import jax
 import jax.numpy as np
+import jax_qgeo
 import numpy
-from jax import jit
+from jax import jit, grad, value_and_grad, make_jaxpr
 from jax_qgeo import GHZ, make_dm, ket, number_of_qudits, purity
+import qgeo
 import jax_qgeo.qcode_enum as qce
 from about_time import about_time
 import itertools as itt  # for combinatorics, choice, permutations, etc
@@ -17,20 +21,46 @@ from sympy.physics.quantum.density import Density
 from sympy.physics.quantum.trace import Tr
 """
 
-STATE_DIMENSION = 10
+STATE_DIMENSION = 4
 TARGET_DIMENSION = 4
 
 
 def run():
-    state = GHZ(STATE_DIMENSION)
-    trace_subsystems = tuple([j for j in range(TARGET_DIMENSION, STATE_DIMENSION)])
+    print("Starting random state construct")
+    with about_time() as t2:
+        state = jax_qgeo.rand_pure_state(STATE_DIMENSION)
+    print(f"Random state construct took {t2.duration} seconds")
+    #print(f"Using state: {state}")
+    #qgeo_state = qgeo.RCL(STATE_DIMENSION)
 
-    f = jit(calc_partial_trace, static_argnums=(1, 2,))
+    #trace_subsystems = tuple([j for j in range(TARGET_DIMENSION, STATE_DIMENSION)])
 
-    f2 = jit(calc_sector_lengths)
+    #f = jit(calc_partial_trace, static_argnums=(1, 2,))
+    #f2 = jit(calc_sector_lengths)
+    #traced_state = f(state, trace_subsystems, STATE_DIMENSION)
+    #qgeo_traced_state = qgeo.ptrace(qgeo_state, trace_subsystems)
 
-    traced_state = f(state, trace_subsystems, STATE_DIMENSION)
-    print(f2(traced_state))
+    #print(qgeo.sector_len_f(qgeo_traced_state))
+    # print(f2(traced_state))
+
+    print("Grading function")
+    grad_func = grad(calc_target_sector_of_state)
+    print("JITing function")
+    grad_func_jitted = jit(grad_func)
+    #print(make_jaxpr(grad_func_jitted)(state))
+
+    print("Computing Result")
+    result = grad_func_jitted(state)
+    result.block_until_ready()
+    print(f"Result: {result}")
+
+    #for i in range(10):
+    #    with about_time() as t:
+            #result = grad_func_jitted(state)
+            #result[0].block_until_ready()
+            #print(f"Result: {result}")
+
+        #print(f"[Dim {STATE_DIMENSION}, Pass {i}]: {t.duration} seconds")
 
     # t1 = about_time(block_partial_trace, f, state, trace_subsystems)
     # print(f"First pass: {t1.duration} seconds")
@@ -53,7 +83,7 @@ def block_partial_trace(partial_trace_callable, *args):
 
     return result
 
-
+@partial(jit, static_argnums=(1,2,))
 def calc_partial_trace(rho, trace_over, n):  # former ptrace_dim
     """ partial trace over subsystems specified in trace_over for arbitrary
         n-quDit systems (also of heteregeneous dimensions)
@@ -89,6 +119,7 @@ def calc_partial_trace(rho, trace_over, n):  # former ptrace_dim
 
     return trace.reshape(d_new, d_new)
 
+@jit
 def calc_sector_lengths(rho):
     """ obtains sector lenghts / weights trough purities and Rains transform
             faster, and for arbitrary dimensions
@@ -119,15 +150,22 @@ def all_kRDMs(rho, n, k=2, verbose=False):
     """
     l = numpy.arange(n)
 
-    # to:     trace over subs
-    # to_bar: subs in complement (what remains after partial tracing)
     for to in itt.combinations(l, n - k):
         to = list(to)
         if verbose:
             print('trace over', to)
-        rho_red = calc_partial_trace(rho, to, n)
+
+        rho_red = calc_partial_trace(rho, tuple(to), n)
 
         yield rho_red
+
+def calc_target_sector_of_state(state):
+    trace_subsystems = tuple([j for j in range(TARGET_DIMENSION, STATE_DIMENSION)])
+    traced_state = calc_partial_trace(state, trace_subsystems, STATE_DIMENSION)
+
+    sector_lengths = calc_sector_lengths(traced_state)
+
+    return sector_lengths[TARGET_DIMENSION]
 
 """
 @partial(jit)
@@ -164,4 +202,9 @@ def partial_trace(state, subsystem, n_subsystems):
     print(f"Took {time.time() - start_time} seconds!")
 
     return
+"""
+
+"""
+Spherical Manifolds: https://eprints.whiterose.ac.uk/78407/1/SphericalFinal.pdf
+Riemann Optimization: https://andbloch.github.io/Stochastic-Gradient-Descent-on-Riemannian-Manifolds/
 """
