@@ -22,20 +22,19 @@ from sympy.physics.quantum.density import Density
 from sympy.physics.quantum.trace import Tr
 """
 
-STATE_DIMENSION = 6
+STATE_DIMENSION = 7
 TARGET_DIMENSION = 4
-STEP_SIZE_ALPHA = 0.0001
+STEP_SIZE_ALPHA = 0.00001
 NUM_ITERATIONS = 10000
 
 
 def run():
-    print("Grading function")
+    print("Grading function...")
     grad_func = value_and_grad(calc_target_sector_of_state)
-    print("JITing function")
+    print("JITing function...")
     grad_func_jitted = jit(grad_func)
 
-
-    print("Starting random state construct")
+    print("Starting random state construct...")
     with about_time() as t2:
         state = jax_qgeo.rand_pure_state(STATE_DIMENSION)
     print(f"Random state construct took {t2.duration} seconds")
@@ -58,8 +57,10 @@ def run():
     #print(make_jaxpr(grad_func_jitted)(state))
 
     print("Initially grading...")
-    result = grad_func_jitted(state)
-    result[1].block_until_ready()
+    with about_time() as grad_time:
+        result = grad_func_jitted(state)
+        result[1].block_until_ready()
+    print(f"Initially grading took {grad_time.duration} seconds")
     print("-----------------------------------------------------------------")
     for _ in alive_progress.alive_it(range(NUM_ITERATIONS), force_tty=True):
         result = grad_func_jitted(state)
@@ -138,35 +139,33 @@ def calc_partial_trace(rho, trace_over, n):  # former ptrace_dim
 
     return trace.reshape(d_new, d_new)
 
-@jit
-def calc_sector_lengths(rho):
+def calc_target_sector_of_state(rho):
     """ obtains sector lenghts / weights trough purities and Rains transform
             faster, and for arbitrary dimensions
         """
     n = TARGET_DIMENSION
 
-    Ap = np.zeros(n + 1)
-
-    for k in range(n + 1):
-        for red in all_kRDMs(rho, n=n, k=k):
-            Ap = Ap.at[k].set(Ap[k] + purity(red))
-
     # transform (Rains) unitary to Shor-Laflamme primary enumerator
     x_symbols = symbols("x0:%d" % (n + 1))
-
     Wp = qce.make_enum(x_symbols, n)
     W = qce.unitary_to_primary(Wp)
-    # A = qce.poly_coeffs(W)
     A = qce.W_coeffs(W)
-    subs_A = [lambdify(x_symbols, el)(*Ap) for el in A]
 
-    return subs_A
+    target_sector_length = 0
+    for rho_red in all_kRDMs(rho, n=STATE_DIMENSION, k=TARGET_DIMENSION):
+        Ap = np.zeros(n + 1)
+
+        for k in range(n + 1):
+            for rho_red_red in all_kRDMs(rho_red, n=n, k=k):
+                Ap = Ap.at[k].set(Ap[k] + purity(rho_red_red))
+
+        target_sector_length += lambdify(x_symbols, A[TARGET_DIMENSION])(*Ap)
+
+    return target_sector_length
 
 
 def all_kRDMs(rho, n, k=2, verbose=False):
-    """ generator of all reduced states of size k,
-        optionally padded with identities
-    """
+    """ generator of all reduced states of size k """
     l = numpy.arange(n)
 
     for to in itt.combinations(l, n - k):
@@ -177,14 +176,6 @@ def all_kRDMs(rho, n, k=2, verbose=False):
         rho_red = calc_partial_trace(rho, tuple(to), n)
 
         yield rho_red
-
-def calc_target_sector_of_state(state):
-    trace_subsystems = tuple([j for j in range(TARGET_DIMENSION, STATE_DIMENSION)])
-    traced_state = calc_partial_trace(state, trace_subsystems, STATE_DIMENSION)
-
-    sector_lengths = calc_sector_lengths(traced_state)
-
-    return sector_lengths[TARGET_DIMENSION]
 
 def compute_new_state(old_state, gradient):
     normal_proj = old_state * np.vdot(gradient, old_state) / np.linalg.norm(old_state)
