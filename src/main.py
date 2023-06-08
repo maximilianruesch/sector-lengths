@@ -99,21 +99,20 @@ def calc_a():
     W = qce.unitary_to_primary(Wp)
     A = qce.W_coeffs(W)
 
-    return A[TARGET_DIMENSION], x_symbols
+    return A[TARGET_DIMENSION], x_symbols[0:TARGET_DIMENSION + 1]
 
 def calc_target_sector_of_state(rho):
     """ obtains sector lenghts / weights trough purities and Rains transform
             faster, and for arbitrary dimensions
         """
-    n = STATE_DIMENSION
-    (target_a, x_symbols) = calc_a()
+    (target_a, x_symbols_for_target) = calc_a()
 
-    Ap = np.zeros(n + 1)
-    for k in range(n + 1):
-        for rho_red in all_kRDMs(rho, n=n, k=k):
+    Ap = np.zeros(TARGET_DIMENSION + 1)
+    for k in range(TARGET_DIMENSION + 1):
+        for rho_red in all_kRDMs(rho, n=STATE_DIMENSION, k=k):
             Ap = Ap.at[k].set(Ap[k] + purity(rho_red))
 
-    return lambdify(x_symbols, target_a)(*Ap)
+    return lambdify(x_symbols_for_target, target_a)(*Ap)
 
 
 def all_kRDMs(rho, n, k=2, verbose=False):
