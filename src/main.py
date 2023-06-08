@@ -22,10 +22,10 @@ from sympy.physics.quantum.density import Density
 from sympy.physics.quantum.trace import Tr
 """
 
-STATE_DIMENSION = 7
+STATE_DIMENSION = 8
 TARGET_DIMENSION = 4
 STEP_SIZE_ALPHA = 0.00001
-NUM_ITERATIONS = 10000
+NUM_ITERATIONS = 1000
 
 
 def run():
@@ -41,6 +41,7 @@ def run():
     print(f"Size of the state: {len(state)}")
     #print(f"Initial target sector: {grad_func_jitted(state)[0]}")
     print(f"Purity of the state: {qgeo.purity(qgeo.make_dm(state))}")
+    print(f"Initial sector length {TARGET_DIMENSION}: {qgeo.sector_len_f(state)[TARGET_DIMENSION]}")
     #print(f"Using state: {state}")
     #qgeo_state = qgeo.RCL(STATE_DIMENSION)
 
@@ -139,17 +140,29 @@ def calc_partial_trace(rho, trace_over, n):  # former ptrace_dim
 
     return trace.reshape(d_new, d_new)
 
-def calc_target_sector_of_state(rho):
-    """ obtains sector lenghts / weights trough purities and Rains transform
-            faster, and for arbitrary dimensions
-        """
-    n = TARGET_DIMENSION
-
+def calc_a():
+    n = STATE_DIMENSION
     # transform (Rains) unitary to Shor-Laflamme primary enumerator
     x_symbols = symbols("x0:%d" % (n + 1))
     Wp = qce.make_enum(x_symbols, n)
     W = qce.unitary_to_primary(Wp)
     A = qce.W_coeffs(W)
+
+    return A[TARGET_DIMENSION], x_symbols
+
+def calc_target_sector_of_state(rho):
+    """ obtains sector lenghts / weights trough purities and Rains transform
+            faster, and for arbitrary dimensions
+        """
+    n = STATE_DIMENSION
+    (target_a, x_symbols) = calc_a()
+
+    Ap = np.zeros(n + 1)
+    for k in range(n + 1):
+        for rho_red in all_kRDMs(rho, n=n, k=k):
+            Ap = Ap.at[k].set(Ap[k] + purity(rho_red))
+
+    return lambdify(x_symbols, target_a)(*Ap)
 
     target_sector_length = 0
     for rho_red in all_kRDMs(rho, n=STATE_DIMENSION, k=TARGET_DIMENSION):
