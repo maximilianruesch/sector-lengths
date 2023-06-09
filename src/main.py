@@ -1,5 +1,7 @@
+import json
+from datetime import datetime
+import os.path
 from functools import partial
-
 import alive_progress
 import jax.numpy as np
 import jax_qgeo
@@ -20,6 +22,8 @@ from sympy.physics.quantum import Ket, TensorProduct, Dagger, qapply, Bra
 from sympy.physics.quantum.density import Density
 from sympy.physics.quantum.trace import Tr
 """
+
+OUTPUT_DIRECTORY = os.path.abspath('../data')
 
 STATE_DIMENSION = 8
 TARGET_DIMENSION = 4
@@ -51,9 +55,14 @@ def run():
         result = grad_func_jitted(state)
         state = compute_new_state(state, result[1])
 
-    print(f"Resulting sector length {TARGET_DIMENSION}: {grad_func_jitted(state)[0]}")
-    print(f"Original sector length {TARGET_DIMENSION}: {qgeo.sector_len_f(state)[TARGET_DIMENSION]}")
+    final_sector_length = grad_func_jitted(state)[0]
+    exact_sector_length = qgeo.sector_len_f(state)[TARGET_DIMENSION]
+    print(f"Resulting sector length {TARGET_DIMENSION}: {final_sector_length}")
+    print(f"Original sector length {TARGET_DIMENSION}: {exact_sector_length}")
     print(f"Resulting purity: {jax_qgeo.purity(jax_qgeo.make_dm(state))}")
+
+    file_name = export_state(state, exact_sector_length)
+    print(f"Saved result to {file_name}")
 
     return
 
@@ -141,6 +150,19 @@ def compute_new_state(old_state, gradient):
     new_state = np.cos(tangent_norm) * new_tangent_state + np.sin(tangent_norm) * (tangent_proj / tangent_norm)
 
     return new_state
+
+def export_state(state, sector_length):
+    timestamp=int(datetime.timestamp(datetime.now()))
+    file_name = f"result_s{STATE_DIMENSION}_t{TARGET_DIMENSION}_{timestamp}_{sector_length}.json"
+    file_path = os.path.join(OUTPUT_DIRECTORY, file_name)
+
+    with open(file_path, 'w') as file:
+        json.dump(
+            [str(x) for x in state],
+            file,
+        )
+
+    return file_name
 
 
 if __name__ == '__main__':
