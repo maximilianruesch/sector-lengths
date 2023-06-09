@@ -129,11 +129,14 @@ def all_kRDMs(rho, n, k=2, verbose=False):
         yield rho_red
 
 def compute_new_state(old_state, gradient):
+    # compute tangent projection of gradient
     normal_proj = old_state * np.vdot(gradient, old_state) / np.linalg.norm(old_state)
     tangent_proj = gradient - normal_proj
 
+    # step along tangent space
     new_tangent_state = old_state + STEP_SIZE_ALPHA * tangent_proj
 
+    # exp_map new tangent point to hypersphere surface
     tangent_norm = np.linalg.norm(tangent_proj)
     new_state = np.cos(tangent_norm) * new_tangent_state + np.sin(tangent_norm) * (tangent_proj / tangent_norm)
 
