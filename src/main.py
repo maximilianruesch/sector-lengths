@@ -12,16 +12,7 @@ import qgeo
 import jax_qgeo.qcode_enum as qce
 from about_time import about_time
 import itertools as itt  # for combinatorics, choice, permutations, etc
-
 from sympy import symbols, lambdify
-
-"""
-from sympy import symbols, lambdify, Sum, srepr, Identity, Array
-from sympy.abc import i
-from sympy.physics.quantum import Ket, TensorProduct, Dagger, qapply, Bra
-from sympy.physics.quantum.density import Density
-from sympy.physics.quantum.trace import Tr
-"""
 
 OUTPUT_DIRECTORY = os.path.abspath('../data')
 
