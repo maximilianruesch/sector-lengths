@@ -13,10 +13,11 @@ import jax_qgeo.qcode_enum as qce
 from about_time import about_time
 import itertools as itt  # for combinatorics, choice, permutations, etc
 from sympy import symbols, lambdify
+import math
 
 OUTPUT_DIRECTORY = os.path.abspath('../data')
 
-STATE_DIMENSION = 8
+STATE_DIMENSION = 5
 TARGET_DIMENSION = 4
 STEP_SIZE_ALPHA = 0.00001
 NUM_ITERATIONS = 1000
@@ -33,7 +34,7 @@ def run():
         state = jax_qgeo.rand_pure_state(STATE_DIMENSION)
     print(f"Random state construct took {t2.duration} seconds")
     print(f"Size of the state: {len(state)}")
-    print(f"Purity of the state: {qgeo.purity(qgeo.make_dm(state))}")
+    # print(f"Purity of the state: {qgeo.purity(qgeo.make_dm(state))}")
     print(f"Initial sector length {TARGET_DIMENSION}: {qgeo.sector_len_f(state)[TARGET_DIMENSION]}")
 
     print("Initially grading...")
@@ -46,14 +47,23 @@ def run():
         result = grad_func_jitted(state)
         state = compute_new_state(state, result[1])
 
+    # Final state normalization
+    state = state / np.linalg.norm(state)
+
     final_sector_length = grad_func_jitted(state)[0]
     exact_sector_length = qgeo.sector_len_f(state)[TARGET_DIMENSION]
-    print(f"Resulting sector length {TARGET_DIMENSION}: {final_sector_length}")
-    print(f"Original sector length {TARGET_DIMENSION}: {exact_sector_length}")
-    print(f"Resulting purity: {jax_qgeo.purity(jax_qgeo.make_dm(state))}")
+    print(f"[T] (N k) witness: {math.comb(STATE_DIMENSION, TARGET_DIMENSION)}")
+    print(f"[N] Resulting sector length {TARGET_DIMENSION}: {final_sector_length}")
+    print(f"[N] Original sector length {TARGET_DIMENSION}: {exact_sector_length}")
+    print(f"[N] Resulting purity: {jax_qgeo.purity(jax_qgeo.make_dm(state))}")
 
     file_name = export_state(state, exact_sector_length)
     print(f"Saved result to {file_name}")
+
+    print("Calculating symmetric properties of the state...")
+    print(calc_symmetric_bins(state))
+
+    print("-----------------------------------------------------------------------------------------------------------")
 
     return
 
@@ -154,6 +164,15 @@ def export_state(state, sector_length):
         )
 
     return file_name
+
+def calc_symmetric_bins(state):
+    bins = [numpy.array([]) for _ in range(STATE_DIMENSION + 1)]
+    for index, j in enumerate(state):
+        bins[index.bit_count()] = numpy.append(bins[index.bit_count()], [j])
+
+    min_max_bins = [(numpy.min(sym_bin), numpy.max(sym_bin)) for sym_bin in bins]
+
+    return [mmbin[1] - mmbin[0] for mmbin in min_max_bins]
 
 
 if __name__ == '__main__':
