@@ -58,10 +58,11 @@ def run():
 
     # Final state normalization
     state_params = states.normalize(state_params)
-    states.final_stats(state_params, final_sector_length=grad_func_jitted(state_params)[0])
+    final_sector_length = grad_func_jitted(state_params)[0]
+    states.final_stats(state_params, final_sector_length=final_sector_length)
 
-    #file_name = export_state(states.get_file_prefix(), state, exact_sector_length)
-    #print(f"Saved result to {file_name}")
+    file_name = export_state(states.get_file_prefix(), state_params, final_sector_length)
+    print(f"Saved result to {file_name}")
 
     print("Calculating symmetric properties of the state...")
     print(states.symmetric_bins(state_params))
