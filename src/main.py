@@ -22,8 +22,8 @@ OUTPUT_DIRECTORY = os.path.abspath('../data')
 
 STATE_DIMENSION = 5
 TARGET_DIMENSION = 4
-STEP_SIZE_ALPHA = 0.001
-NUM_ITERATIONS = 100
+STEP_SIZE_ALPHA = 0.0005
+NUM_ITERATIONS = 1000
 
 
 def run():
@@ -51,7 +51,7 @@ def run():
     print("-----------------------------------------------------------------")
     for _ in alive_progress.alive_it(range(NUM_ITERATIONS), force_tty=True):
         result = grad_func_jitted(state_params)
-        print((result[0], result[1][0]))
+        print((result[0], numpy.average(result[1])))
         state_params = states.new_state_params(state_params, result[1])
 
     print(f"[T] (N k) witness: {math.comb(STATE_DIMENSION, TARGET_DIMENSION)}")
@@ -182,17 +182,15 @@ class AllPureStates:
 
         return lambdify(x_symbols_for_target, target_a)(*Ap)
 
-    def new_state_params(self, old_params, gradient): # TODO check this very hard pls
+    def new_state_params(self, old_params, gradient):
         # compute tangent projection of gradient
         normal_proj = old_params * np.vdot(gradient, old_params) / np.linalg.norm(old_params)
         tangent_proj = gradient - normal_proj
 
-        # step along tangent space
-        new_tangent_state = old_params + STEP_SIZE_ALPHA * tangent_proj
-
-        # exp_map new tangent point to hypersphere surface
+        # step along geodesic on hypersphere
         tangent_norm = np.linalg.norm(tangent_proj)
-        new_state = np.cos(tangent_norm) * new_tangent_state + np.sin(tangent_norm) * (tangent_proj / tangent_norm)
+        new_state = np.cos(tangent_norm * STEP_SIZE_ALPHA) * old_params +\
+                    np.sin(tangent_norm * STEP_SIZE_ALPHA) * (tangent_proj / tangent_norm)
 
         return new_state
 
