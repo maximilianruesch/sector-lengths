@@ -140,7 +140,9 @@ def export_state(file_prefix, state, sector_length):
 
 class AllPureStates:
     def construct_random(self):
-        return jax_qgeo.rand_pure_state(STATE_DIMENSION)
+        random_numbers = numpy.random.rand(2 ** STATE_DIMENSION) + 1j * numpy.random.rand(2 ** STATE_DIMENSION)
+
+        return self.normalize(random_numbers)
 
     def normalize(self, state_params):
         return state_params / np.linalg.norm(state_params)
