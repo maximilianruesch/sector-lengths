@@ -212,7 +212,7 @@ class SymmetricPureStates(AllPureStates):
         return np.dot(state_params, np.array(dicke_states))
 
     def construct_random(self):
-        return self.normalize(numpy.random.rand(STATE_DIMENSION + 1))
+        return self.normalize(numpy.random.rand(STATE_DIMENSION + 1) + 1j * numpy.random.rand(STATE_DIMENSION + 1))
 
     def normalize(self, state_params):
         blow_up_factor = [math.comb(STATE_DIMENSION, k) for k in range(STATE_DIMENSION + 1)]
