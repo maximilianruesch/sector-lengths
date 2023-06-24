@@ -13,6 +13,7 @@ import numpy
 import qgeo
 from about_time import about_time
 from jax import jit, value_and_grad
+from jax.experimental.compilation_cache import compilation_cache as cc
 from jax_qgeo import make_dm, purity
 from sympy import symbols, lambdify
 
@@ -273,6 +274,8 @@ class SymmetricPureStates(AllPureStates):
 
 
 if __name__ == '__main__':
+    cc.initialize_cache("cache")
+
     run()
 
 """
