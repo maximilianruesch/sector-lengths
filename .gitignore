@@ -1,5 +1,9 @@
 data
 src/cache
 
+# Hydra
+conf/.config.yaml
+src/outputs
+
 # IDE
 .idea
