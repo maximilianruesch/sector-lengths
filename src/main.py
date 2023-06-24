@@ -16,19 +16,21 @@ from jax import jit, value_and_grad
 from jax.experimental.compilation_cache import compilation_cache as cc
 from jax_qgeo import make_dm, purity
 from sympy import symbols, lambdify
+from matplotlib.axes import Axes
+from matplotlib import cm, colors, pyplot as plt
 
 from lib.jax_qgeo import ket, string_permutations_unique
 
 OUTPUT_DIRECTORY = os.path.abspath('../data')
 
-STATE_DIMENSION = 5
-TARGET_DIMENSION = 4
-STEP_SIZE_ALPHA = 0.0005
-NUM_ITERATIONS = 1000
+STATE_DIMENSION = 2
+TARGET_DIMENSION = 1
+STEP_SIZE_ALPHA = 0.005
+NUM_ITERATIONS = 30
 
 
 def run():
-    states = AllPureStates()
+    states = SymmetricPureStates()
     print(f"[I] Using {states.__class__}")
 
     print("Grading function...")
@@ -41,7 +43,7 @@ def run():
         state_params = states.construct_random()
     print(f"Random state construct took {t2.duration} seconds")
 
-    # state_params = numpy.array([0.32302107, 0.65313237, 0.20613978], dtype=complex)
+    # state_params = states.normalize(numpy.array([0.75, 0.23, 0.27]))
     states.stats(state_params)
 
     print("Initially grading...")
@@ -50,9 +52,12 @@ def run():
         result[1].block_until_ready()
     print(f"Initially grading took {grad_time.duration} seconds")
     print("-----------------------------------------------------------------")
+
+    states.axes = generate_plot(grad_func_jitted)
+
     for _ in alive_progress.alive_it(range(NUM_ITERATIONS), force_tty=True):
         result = grad_func_jitted(state_params)
-        print((result[0], numpy.average(result[1])))
+        print((result[0], numpy.average(result[1]), numpy.linalg.norm(result[1])))
         state_params = states.new_state_params(state_params, result[1])
 
     print(f"[T] (N k) witness: {math.comb(STATE_DIMENSION, TARGET_DIMENSION)}")
@@ -68,6 +73,9 @@ def run():
     print("Calculating symmetric properties of the state...")
     print(states.symmetric_bins(state_params))
     print("-----------------------------------------------------------------------------------------------------------")
+
+    plt.ioff()
+    plt.show()
 
     return
 
@@ -141,6 +149,8 @@ def export_state(file_prefix, state, sector_length):
     return file_name
 
 class AllPureStates:
+    axes: Axes = None
+
     def construct_random(self):
         random_numbers = numpy.random.rand(2 ** STATE_DIMENSION) + 1j * numpy.random.rand(2 ** STATE_DIMENSION)
 
@@ -191,6 +201,9 @@ class AllPureStates:
         normal_proj = old_params * np.vdot(gradient, old_params) / np.linalg.norm(old_params)
         tangent_proj = gradient - normal_proj
 
+        self.axes.quiver(*old_params, *(gradient * 0.1), color="g")
+        self.axes.quiver(*old_params, *(tangent_proj * 0.1), color="r")
+
         # step along geodesic on hypersphere
         tangent_norm = np.linalg.norm(tangent_proj)
         new_state = np.cos(tangent_norm * STEP_SIZE_ALPHA) * old_params +\
@@ -214,15 +227,15 @@ class SymmetricPureStates(AllPureStates):
         return np.dot(state_params, np.array(dicke_states))
 
     def construct_random(self):
-        return self.normalize(numpy.random.rand(STATE_DIMENSION + 1) + 1j * numpy.random.rand(STATE_DIMENSION + 1))
+        return self.normalize(numpy.random.rand(STATE_DIMENSION + 1))  # + 1j * numpy.random.rand(STATE_DIMENSION + 1)
 
     def normalize(self, state_params):
-        blow_up_factor = [math.comb(STATE_DIMENSION, k) for k in range(STATE_DIMENSION + 1)]
-        blown_up_params = numpy.multiply(state_params, blow_up_factor)
+        blow_up_factor = numpy.sqrt([math.comb(STATE_DIMENSION, k) for k in range(STATE_DIMENSION + 1)])
+        blown_up_params = state_params * blow_up_factor
 
         normed_blown_up_params = super().normalize(blown_up_params)
 
-        return numpy.divide(normed_blown_up_params, numpy.sqrt(blow_up_factor))
+        return normed_blown_up_params / blow_up_factor
 
     def get_file_prefix(self):
         return "symm_"
@@ -253,24 +266,54 @@ class SymmetricPureStates(AllPureStates):
 
     def new_state_params(self, old_params, gradient):
         blow_up_factor = numpy.sqrt([math.comb(STATE_DIMENSION, k) for k in range(STATE_DIMENSION + 1)])
-        blown_up_params = numpy.multiply(old_params, blow_up_factor)
-        blown_up_gradient = numpy.multiply(gradient, blow_up_factor)
 
-        # compute tangent projection of gradient
-        normal_proj = blown_up_params * np.vdot(blown_up_gradient, blown_up_params) / np.linalg.norm(blown_up_params)
-        tangent_proj = blown_up_gradient - normal_proj
+        blown_up_params = old_params * blow_up_factor
+        blown_up_gradient = gradient
 
-        # step along tangent space
-        scaled_projection = STEP_SIZE_ALPHA * tangent_proj
+        new_blown_up_params = super().new_state_params(blown_up_params, blown_up_gradient)
 
-        # exp_map new tangent point to hypersphere surface
-        tangent_norm = np.linalg.norm(scaled_projection)
-        new_state = np.cos(tangent_norm) * blown_up_params + np.sin(tangent_norm) * (scaled_projection / tangent_norm)
+        return self.normalize(new_blown_up_params / blow_up_factor)
 
-        if tangent_norm < 1E-6:
-            return old_params
 
-        return (new_state / np.linalg.norm(new_state)) / numpy.sqrt(blow_up_factor)
+def generate_plot(sector_len_f):
+    resolution = 100
+    u = numpy.linspace(0, 2 * numpy.pi, resolution)
+    v = numpy.linspace(0, numpy.pi, resolution)
+
+    x = numpy.outer(numpy.cos(u), numpy.sin(v))
+    y = numpy.outer(numpy.sin(u), numpy.sin(v)) / numpy.sqrt(2)
+    z = numpy.outer(numpy.ones(numpy.size(u)), numpy.cos(v))
+
+    raw = numpy.stack((x, y, z), axis=2)
+
+    # Remap to sphere
+    y = y * numpy.sqrt(2)
+
+    values = [numpy.zeros(resolution) for _ in range(resolution)]
+    for i, j in itt.product(range(resolution), range(resolution)):
+        coords = raw[i][j]
+
+        values[i][j] = sector_len_f(np.array(coords))[0]
+
+        # new_r = values[i][j] * 0.1
+        # x[i][j] *= (1 + new_r)
+        # y[i][j] *= (1 + new_r)
+        # z[i][j] *= (1 + new_r)
+
+
+    ax: Axes = plt.axes(projection="3d")
+    ax.plot_surface(x, y, z, cmap="plasma", facecolors=cm.plasma(colors.Normalize()(values)), rstride=1, cstride=1, antialiased=False)
+
+    m = cm.ScalarMappable(cmap=cm.plasma)
+    m.set_array(numpy.linspace(numpy.min(values), numpy.max(values), 10))
+    plt.colorbar(m, ax=ax)
+
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
+    ax.set_zlim(-1, 1)
+
+    return ax
+
 
 
 if __name__ == '__main__':
