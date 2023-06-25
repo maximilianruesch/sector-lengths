@@ -8,7 +8,6 @@ from functools import partial
 import alive_progress
 import jax.numpy as np
 import jax_qgeo
-import jax_qgeo.qcode_enum as qce
 import numpy
 import qgeo
 import hydra
@@ -16,14 +15,10 @@ from omegaconf import DictConfig
 from about_time import about_time
 from jax import jit, value_and_grad
 from jax.experimental.compilation_cache import compilation_cache as cc
-from jax_qgeo import make_dm, purity
+from jax_qgeo import make_dm, purity, qcode_enum as qce, ket, string_permutations_unique
 from sympy import symbols, lambdify
 from matplotlib.axes import Axes
 from matplotlib import cm, colors, pyplot as plt
-
-from lib.jax_qgeo import ket, string_permutations_unique
-
-OUTPUT_DIRECTORY = os.path.abspath('../data')
 
 @hydra.main(version_base=None, config_path="../conf", config_name=".config.yaml")
 def run(config: DictConfig):
@@ -153,12 +148,23 @@ class AllPureStates:
     def normalize(self, state_params):
         return state_params / np.linalg.norm(state_params)
 
-    def export(self, state, sector_length):
+    def export(self, state_params, sector_length):
+        directory = os.path.join(os.path.abspath('../'), self._config.export.directory)
+        os.makedirs(directory, exist_ok=True)
+
         timestamp = int(datetime.timestamp(datetime.now()))
         file_name = f"{self._file_prefix}result_s{self._config.qubitCount}_t{self._config.target}_{timestamp}_{sector_length}.json"
-        file_path = os.path.join(OUTPUT_DIRECTORY, file_name)
+        file_path = os.path.join(directory, file_name)
 
-        with open(file_path, 'w') as file: json.dump([str(x) for x in state], file)
+        with open(file_path, 'w') as file:
+            json.dump(
+                {
+                    "state": [str(x) for x in state_params],
+                    "sector_length": { str(self._config.target): float(sector_length) },
+                    "purity": float(jax_qgeo.purity(jax_qgeo.make_dm(state_params)))
+                },
+                file,
+            )
 
         return file_name
 
