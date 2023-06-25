@@ -4,7 +4,7 @@ import math
 import os.path
 from datetime import datetime
 from functools import partial
-
+import logging
 import alive_progress
 import jax.numpy as np
 import jax_qgeo
@@ -324,6 +324,7 @@ def generate_plot(sector_len_f):
 
 
 if __name__ == '__main__':
+    logging.getLogger('jax._src.dispatch').setLevel(logging.WARNING)
     cc.initialize_cache("cache")
 
     run()
