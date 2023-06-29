@@ -64,7 +64,8 @@ def run(config: DictConfig):
     final_sector_length = grad_func_jitted(state_params)[0]
     states.final_stats(state_params, final_sector_length=final_sector_length)
 
-    print(f"Saved result to {states.export(state_params, final_sector_length)}")
+    if config.export.enabled:
+        print(f"Saved result to {states.export(state_params, final_sector_length)}")
 
     print("Calculating symmetric properties of the state...")
     print(states.symmetric_bins(state_params))
