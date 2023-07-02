@@ -39,7 +39,6 @@ def run(config: DictConfig):
         state_params = states.construct_random()
     print(f"Random state construct took {t2.duration} seconds")
 
-    # state_params = states.normalize(numpy.array([0.75, 0.23, 0.27]))
     states.stats(state_params)
 
     print("Initially grading...")
@@ -50,7 +49,7 @@ def run(config: DictConfig):
     print("-----------------------------------------------------------------")
 
     if config.plot:
-        states.axes = generate_plot(grad_func_jitted)
+        states.axes = generate_plot(grad_func_jitted, states)
 
     for _ in alive_progress.alive_it(range(config.iterations), force_tty=True):
         result = grad_func_jitted(state_params)
@@ -223,6 +222,11 @@ class AllPureStates:
 
 class SymmetricPureStates(AllPureStates):
     _file_prefix: str = "symm_"
+    _sphere_mapping: numpy.ndarray
+
+    def __init__(self, config):
+        super().__init__(config)
+        self._sphere_mapping = numpy.sqrt([math.comb(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
 
     def _denormalized_dicke(self, n, k):
         s = k * '1' + (n - k) * '0'
@@ -235,18 +239,19 @@ class SymmetricPureStates(AllPureStates):
         for k in range(self._config.qubitCount + 1):
             dicke_states.append(self._denormalized_dicke(self._config.qubitCount, k))
 
-        return np.dot(state_params, np.array(dicke_states))
+        sphere_dicke_params = super().normalize(state_params) / self._sphere_mapping
+
+        return np.dot(sphere_dicke_params, np.array(dicke_states))
 
     def construct_random(self):
         return self.normalize(numpy.random.rand(self._config.qubitCount + 1))  # + 1j * numpy.random.rand(STATE_DIMENSION + 1)
 
     def normalize(self, state_params):
-        blow_up_factor = numpy.sqrt([math.comb(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
-        blown_up_params = state_params * blow_up_factor
+        blown_up_params = state_params * self._sphere_mapping
 
         normed_blown_up_params = super().normalize(blown_up_params)
 
-        return normed_blown_up_params / blow_up_factor
+        return normed_blown_up_params / self._sphere_mapping
 
     def stats(self, state_params):
         super().stats(self._construct_dicke(state_params))
@@ -273,35 +278,24 @@ class SymmetricPureStates(AllPureStates):
         return lambdify(x_symbols_for_target, target_a)(*Ap) * math.comb(self._config.qubitCount, self._config.target)
 
     def new_state_params(self, old_params, gradient):
-        blow_up_factor = numpy.sqrt([math.comb(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
-
-        blown_up_params = old_params * blow_up_factor
-        blown_up_gradient = gradient
-
-        new_blown_up_params = super().new_state_params(blown_up_params, blown_up_gradient)
-
-        return self.normalize(new_blown_up_params / blow_up_factor)
+        return self.normalize(super().new_state_params(old_params=super().normalize(old_params), gradient=gradient))
 
 
-def generate_plot(sector_len_f):
+def generate_plot(sector_len_f, states):
     resolution = 100
     u = numpy.linspace(0, 2 * numpy.pi, resolution)
     v = numpy.linspace(0, numpy.pi, resolution)
 
     x = numpy.outer(numpy.cos(u), numpy.sin(v))
-    y = numpy.outer(numpy.sin(u), numpy.sin(v)) / numpy.sqrt(2)
+    y = numpy.outer(numpy.sin(u), numpy.sin(v))
     z = numpy.outer(numpy.ones(numpy.size(u)), numpy.cos(v))
 
     raw = numpy.stack((x, y, z), axis=2)
 
-    # Remap to sphere
-    y = y * numpy.sqrt(2)
-
     values = [numpy.zeros(resolution) for _ in range(resolution)]
     for i, j in itt.product(range(resolution), range(resolution)):
-        coords = raw[i][j]
-
-        values[i][j] = sector_len_f(np.array(coords))[0]
+        coords = states.normalize(np.array(raw[i][j]))
+        values[i][j] = sector_len_f(coords)[0]
 
         # new_r = values[i][j] * 0.1
         # x[i][j] *= (1 + new_r)
