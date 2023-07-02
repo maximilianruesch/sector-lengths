@@ -70,8 +70,9 @@ def run(config: DictConfig):
     print(states.symmetric_bins(state_params))
     print("-----------------------------------------------------------------------------------------------------------")
 
-    plt.ioff()
-    plt.show()
+    if config.plot:
+        plt.ioff()
+        plt.show()
 
     return
 
@@ -79,7 +80,7 @@ def run(config: DictConfig):
 @partial(jit, static_argnums=(1,2,))
 def calc_partial_trace(rho, trace_over, n):  # former ptrace_dim
     """ partial trace over subsystems specified in trace_over for arbitrary
-        n-quDit systems (also of heteregeneous dimensions)
+        n-quDit systems (also of heterogeneous dimensions)
         e.g. ptrace(rho_ABC, [1]) = rhoA_C
         if pad is True, state will be tensored by identity to its original size
     args:       rho :   ndarray
@@ -170,7 +171,6 @@ class AllPureStates:
 
     def stats(self, state_params):
         print(f"Size of the state: {len(state_params)}")
-        # print(f"Purity of the state: {qgeo.purity(qgeo.make_dm(state_params))}")
         print(f"Initial sector length {self._config.target}: {qgeo.sector_len_f(state_params)[self._config.target]}")
         print(f"Initial purity: {jax_qgeo.purity(jax_qgeo.make_dm(state_params))}")
 
@@ -187,10 +187,10 @@ class AllPureStates:
 
         min_max_bins = [(numpy.min(sym_bin), numpy.max(sym_bin)) for sym_bin in bins]
 
-        return [mmbin[1] - mmbin[0] for mmbin in min_max_bins]
+        return [min_max_bin[1] - min_max_bin[0] for min_max_bin in min_max_bins]
 
     def calc_target_sector(self, state_params):
-        """ obtains sector lenghts / weights trough purities and Rains transform
+        """ obtains sector lengths / weights trough purities and Rains transform
                     faster, and for arbitrary dimensions
                 """
         (target_a, x_symbols_for_target) = calc_a(self._config.qubitCount, self._config.target)
@@ -223,35 +223,25 @@ class AllPureStates:
 class SymmetricPureStates(AllPureStates):
     _file_prefix: str = "symm_"
     _sphere_mapping: numpy.ndarray
+    _dicke_states: numpy.ndarray
 
     def __init__(self, config):
         super().__init__(config)
         self._sphere_mapping = numpy.sqrt([math.comb(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
 
-    def _denormalized_dicke(self, n, k):
-        s = k * '1' + (n - k) * '0'
-        s_list = string_permutations_unique(s)
-        psi = numpy.sum(numpy.array([ket(el) for el in s_list]), axis=0)
-        return psi
+        def _denormalized_dicke(n, k):
+            return numpy.sum(numpy.array([ket(el) for el in string_permutations_unique(k * '1' + (n - k) * '0')]), axis=0)
+
+        self._dicke_states = numpy.array([_denormalized_dicke(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
 
     def _construct_dicke(self, state_params):
-        dicke_states = []
-        for k in range(self._config.qubitCount + 1):
-            dicke_states.append(self._denormalized_dicke(self._config.qubitCount, k))
-
-        sphere_dicke_params = super().normalize(state_params) / self._sphere_mapping
-
-        return np.dot(sphere_dicke_params, np.array(dicke_states))
+        return np.dot(super().normalize(state_params) / self._sphere_mapping, self._dicke_states)
 
     def construct_random(self):
         return self.normalize(numpy.random.rand(self._config.qubitCount + 1))  # + 1j * numpy.random.rand(STATE_DIMENSION + 1)
 
     def normalize(self, state_params):
-        blown_up_params = state_params * self._sphere_mapping
-
-        normed_blown_up_params = super().normalize(blown_up_params)
-
-        return normed_blown_up_params / self._sphere_mapping
+        return super().normalize(state_params * self._sphere_mapping) / self._sphere_mapping
 
     def stats(self, state_params):
         super().stats(self._construct_dicke(state_params))
