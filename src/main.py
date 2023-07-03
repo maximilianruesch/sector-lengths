@@ -11,6 +11,7 @@ import jax_qgeo
 import numpy
 import qgeo
 import hydra
+import torch
 from omegaconf import DictConfig
 from about_time import about_time
 from jax import jit, value_and_grad
@@ -140,11 +141,13 @@ class AllPureStates:
     axes: Axes = None
     _file_prefix: str = ""
 
+    _adam_state: dict = {}
+
     def __init__(self, config: DictConfig):
         self._config = config
 
     def construct_random(self):
-        random_numbers = numpy.random.rand(2 ** self._config.qubitCount) + 1j * numpy.random.rand(2 ** self._config.qubitCount)
+        random_numbers = numpy.random.rand(2 ** self._config.qubitCount) # + 1j * numpy.random.rand(2 ** self._config.qubitCount)
 
         return self.normalize(random_numbers)
 
@@ -205,6 +208,9 @@ class AllPureStates:
         return lambdify(x_symbols_for_target, target_a)(*Ap)
 
     def new_state_params(self, old_params, gradient):
+        if self._config.adam.enabled:
+            return self._adam_step(old_params, gradient)
+
         # compute tangent projection of gradient
         normal_proj = old_params * np.vdot(gradient, old_params) / np.linalg.norm(old_params)
         tangent_proj = gradient - normal_proj
@@ -221,6 +227,59 @@ class AllPureStates:
 
         return new_state
 
+    def _adam_step(self, old_params, gradient):
+        config = self._config.adam
+
+        betas = config.betas
+        eps = config.eps
+        learning_rate = config.learningRate
+
+        # Step
+        state = self._adam_state
+
+        # State initialization
+        if len(state) == 0:
+            state["step"] = 0
+            # Exponential moving average of gradient values
+            state["m_t"] = torch.zeros(len(old_params)) # , dtype=torch.complex64
+            # Exponential moving average of squared gradient values
+            state["v_t"] = torch.zeros(len(old_params)) # , dtype=torch.complex64
+
+        state["step"] += 1
+        # make local variables for easy access
+        m_t = state["m_t"]
+        v_t = state["v_t"]
+
+        g_t = torch.from_numpy(numpy.array(gradient))
+        point = torch.from_numpy(numpy.array(old_params))
+
+        def proj_u_on_x_tangent(x, u):
+            return u - (torch.vdot(x, u) / torch.linalg.norm(x)) * x
+
+        # actual step
+        g_t.add_(point)
+        g_t = proj_u_on_x_tangent(point, g_t)
+        m_t.mul_(betas[0]).add_(g_t, alpha=1 - betas[0])
+        v_t.mul_(betas[1]).add_(torch.inner(g_t, g_t), alpha=1 - betas[1])
+        bias_correction1 = 1 - betas[0] ** state["step"]
+        bias_correction2 = 1 - betas[1] ** state["step"]
+
+        # get the direction for ascend
+        direction = m_t.div(bias_correction1) / v_t.div(bias_correction2).sqrt_().add_(eps)
+
+        tangent_norm = torch.linalg.norm(direction)
+        new_point = torch.cos(tangent_norm * learning_rate) * point + \
+                    torch.sin(tangent_norm * learning_rate) * (direction / tangent_norm)
+
+        # transport the exponential averaging to the new point
+        m_t_new = proj_u_on_x_tangent(new_point, m_t)
+
+        state["m_t"] = m_t_new
+        state["v_t"] = v_t
+
+        self._adam_state = state
+
+        return self.normalize(np.array(new_point))
 
 class SymmetricPureStates(AllPureStates):
     _file_prefix: str = "symm_"
@@ -272,7 +331,6 @@ class SymmetricPureStates(AllPureStates):
     def new_state_params(self, old_params, gradient):
         return self.normalize(super().new_state_params(old_params=super().normalize(old_params), gradient=gradient))
 
-
 def generate_plot(sector_len_f, states):
     resolution = 100
     u = numpy.linspace(0, 2 * numpy.pi, resolution)
@@ -307,8 +365,6 @@ def generate_plot(sector_len_f, states):
     ax.set_zlim(-1, 1)
 
     return ax
-
-
 
 if __name__ == '__main__':
     logging.getLogger('jax._src.dispatch').setLevel(logging.WARNING)
