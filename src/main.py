@@ -11,7 +11,6 @@ import jax_qgeo
 import numpy
 import qgeo
 import hydra
-import torch
 from omegaconf import DictConfig
 from about_time import about_time
 from jax import jit, value_and_grad
@@ -212,74 +211,59 @@ class AllPureStates:
             return self._adam_step(old_params, gradient)
 
         # compute tangent projection of gradient
-        normal_proj = old_params * np.vdot(gradient, old_params) / np.linalg.norm(old_params)
-        tangent_proj = gradient - normal_proj
+        tangent_proj = self._proj_u_on_x_tangent(old_params, gradient)
 
         if self._config.plot:
             self.axes.quiver(*old_params, *(gradient * 0.1), color="g")
             self.axes.quiver(*old_params, *(tangent_proj * 0.1), color="r")
 
         # step along geodesic on hypersphere
-        step_size = self._config.states.stepSize
-        tangent_norm = np.linalg.norm(tangent_proj)
-        new_state = np.cos(tangent_norm * step_size) * old_params +\
-                    np.sin(tangent_norm * step_size) * (tangent_proj / tangent_norm)
+        return self._exp_map(old_params, tangent_proj, step_size=self._config.states.stepSize)
 
-        return new_state
+    def _proj_u_on_x_tangent(self, x, u):
+        return u - (np.vdot(x, u) / np.linalg.norm(x)) * x
+
+    def _exp_map(self, cur_point, tangent_direction, step_size):
+        tangent_norm = np.linalg.norm(tangent_direction)
+        return np.cos(tangent_norm * step_size) * cur_point +\
+            np.sin(tangent_norm * step_size) * (tangent_direction / tangent_norm)
 
     def _adam_step(self, old_params, gradient):
         config = self._config.adam
-
-        betas = config.betas
-        eps = config.eps
-        learning_rate = config.learningRate
-
-        # Step
         state = self._adam_state
 
-        # State initialization
+        # state initialization
         if len(state) == 0:
             state["step"] = 0
             # Exponential moving average of gradient values
-            state["m_t"] = torch.zeros(len(old_params)) # , dtype=torch.complex64
+            state["m_t"] = numpy.zeros_like(old_params)
             # Exponential moving average of squared gradient values
-            state["v_t"] = torch.zeros(len(old_params)) # , dtype=torch.complex64
+            state["v_t"] = numpy.zeros_like(old_params)
 
         state["step"] += 1
-        # make local variables for easy access
-        m_t = state["m_t"]
-        v_t = state["v_t"]
-
-        g_t = torch.from_numpy(numpy.array(gradient))
-        point = torch.from_numpy(numpy.array(old_params))
-
-        def proj_u_on_x_tangent(x, u):
-            return u - (torch.vdot(x, u) / torch.linalg.norm(x)) * x
 
         # actual step
-        g_t.add_(point)
-        g_t = proj_u_on_x_tangent(point, g_t)
-        m_t.mul_(betas[0]).add_(g_t, alpha=1 - betas[0])
-        v_t.mul_(betas[1]).add_(torch.inner(g_t, g_t), alpha=1 - betas[1])
+        g_t = self._proj_u_on_x_tangent(old_params, gradient + old_params)
+
+        betas = config.betas
+        m_t = state["m_t"] * betas[0] + (1 - betas[0]) * g_t
+        v_t = state["v_t"] * betas[1] + (1 - betas[1]) * numpy.inner(g_t, g_t)
         bias_correction1 = 1 - betas[0] ** state["step"]
         bias_correction2 = 1 - betas[1] ** state["step"]
 
         # get the direction for ascend
-        direction = m_t.div(bias_correction1) / v_t.div(bias_correction2).sqrt_().add_(eps)
-
-        tangent_norm = torch.linalg.norm(direction)
-        new_point = torch.cos(tangent_norm * learning_rate) * point + \
-                    torch.sin(tangent_norm * learning_rate) * (direction / tangent_norm)
-
-        # transport the exponential averaging to the new point
-        m_t_new = proj_u_on_x_tangent(new_point, m_t)
+        direction = (m_t / bias_correction1) / (np.sqrt(v_t / bias_correction2) + config.eps)
+        # step along geodesic on hypersphere
+        new_point = self._exp_map(old_params, direction, step_size=config.learningRate)
+        # transport the exponential averaging to the new point. this is an approximation by changing the tangent space with projection
+        m_t_new = self._proj_u_on_x_tangent(new_point, m_t)
 
         state["m_t"] = m_t_new
         state["v_t"] = v_t
 
         self._adam_state = state
 
-        return self.normalize(np.array(new_point))
+        return self.normalize(new_point)
 
 class SymmetricPureStates(AllPureStates):
     _file_prefix: str = "symm_"
