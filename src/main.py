@@ -23,10 +23,11 @@ from matplotlib import cm, colors, pyplot as plt
 @hydra.main(version_base=None, config_path="../conf", config_name=".config.yaml")
 def run(config: DictConfig):
     states = None
-    match config.states.stateType:
-        case "all": states = AllPureStates(config)
-        case "symmetric": states = SymmetricPureStates(config)
-
+    with about_time() as t:
+        match config.states.stateType:
+            case "all": states = AllPureStates(config)
+            case "symmetric": states = SymmetricPureStates(config)
+    print(f"State object construct took {t.duration} seconds")
     print(f"[I] Using {states.__class__}")
 
     print("Grading function...")
