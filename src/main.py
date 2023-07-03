@@ -146,7 +146,9 @@ class AllPureStates:
         self._config = config
 
     def construct_random(self):
-        random_numbers = numpy.random.rand(2 ** self._config.qubitCount) # + 1j * numpy.random.rand(2 ** self._config.qubitCount)
+        random_numbers = numpy.random.rand(2 ** self._config.qubitCount)
+        if not self._config.onlyRealValues:
+            random_numbers = random_numbers + 1j * numpy.random.rand(2 ** self._config.qubitCount)
 
         return self.normalize(random_numbers)
 
@@ -283,7 +285,11 @@ class SymmetricPureStates(AllPureStates):
         return np.dot(super().normalize(state_params) / self._sphere_mapping, self._dicke_states)
 
     def construct_random(self):
-        return self.normalize(numpy.random.rand(self._config.qubitCount + 1))  # + 1j * numpy.random.rand(STATE_DIMENSION + 1)
+        random_numbers = numpy.random.rand(self._config.qubitCount + 1)
+        if not self._config.onlyRealValues:
+            random_numbers = random_numbers + 1j * numpy.random.rand(self._config.qubitCount + 1)
+
+        return self.normalize(random_numbers)
 
     def normalize(self, state_params):
         return super().normalize(state_params * self._sphere_mapping) / self._sphere_mapping
