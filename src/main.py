@@ -15,7 +15,7 @@ from omegaconf import DictConfig
 from about_time import about_time
 from jax import jit, value_and_grad
 from jax.experimental.compilation_cache import compilation_cache as cc
-from jax_qgeo import make_dm, purity, qcode_enum as qce, ket, string_permutations_unique
+from jax_qgeo import make_dm, purity, qcode_enum as qce
 from sympy import symbols, lambdify
 from matplotlib.axes import Axes
 from matplotlib import cm, colors, pyplot as plt
@@ -40,7 +40,7 @@ def run(config: DictConfig):
         state_params = states.construct_random()
     print(f"Random state construct took {t2.duration} seconds")
 
-    states.stats(state_params)
+    # states.stats(state_params)
 
     print("Initially grading...")
     with about_time() as grad_time:
@@ -62,7 +62,7 @@ def run(config: DictConfig):
     # Final state normalization
     state_params = states.normalize(state_params)
     final_sector_length = grad_func_jitted(state_params)[0]
-    states.final_stats(state_params, final_sector_length=final_sector_length)
+    # states.final_stats(state_params, final_sector_length=final_sector_length)
 
     print("Calculating symmetric properties of the state...")
     print(states.symmetric_bins(state_params))
@@ -277,10 +277,16 @@ class SymmetricPureStates(AllPureStates):
         super().__init__(config)
         self._sphere_mapping = numpy.sqrt([math.comb(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
 
-        def _denormalized_dicke(n, k):
-            return numpy.sum(numpy.array([ket(el) for el in string_permutations_unique(k * '1' + (n - k) * '0')]), axis=0)
+        def _fast_denormalized_dicke(n, k):
+            ret = numpy.zeros(2 ** self._config.qubitCount)
 
-        self._dicke_states = numpy.array([_denormalized_dicke(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
+            powers = [1 << e for e in range(n)]
+            for bits in itt.combinations(powers, k):
+                ret[sum(bits)] = 1
+
+            return ret
+
+        self._dicke_states = numpy.array([_fast_denormalized_dicke(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
 
     def _construct_dicke(self, state_params):
         return np.dot(super().normalize(state_params) / self._sphere_mapping, self._dicke_states)
