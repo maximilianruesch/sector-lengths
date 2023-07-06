@@ -44,18 +44,34 @@ def run(config: DictConfig):
 
     print("Initially grading...")
     with about_time() as grad_time:
-        result = grad_func_jitted(state_params)
-        result[1].block_until_ready()
+        grad_func_jitted(state_params)[1].block_until_ready()
     print(f"Initially grading took {grad_time.duration} seconds")
     print("-----------------------------------------------------------------")
 
     if config.plot:
         states.axes = generate_plot(grad_func_jitted, states)
 
-    for _ in alive_progress.alive_it(range(config.iterations), force_tty=True):
-        result = grad_func_jitted(state_params)
-        print((result[0], numpy.average(result[1]), numpy.linalg.norm(result[1])))
-        state_params = states.new_state_params(state_params, result[1])
+    def do_iteration(it_sp):
+        it_r = grad_func_jitted(it_sp)
+        print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1])))
+        return it_r[0], states.new_state_params(it_sp, it_r[1])
+
+    if config.iterations == 'auto':
+        sector_lengths = []
+        with alive_progress.alive_bar(force_tty=True) as bar:
+            for _ in range(config.maxIterations):
+                sector_length, state_params = do_iteration(state_params)
+
+                sector_lengths.append(sector_length)
+                last_n_sector_lengths = sector_lengths[-10:]
+                if len(last_n_sector_lengths) == 10 \
+                        and numpy.max(last_n_sector_lengths) - numpy.min(last_n_sector_lengths) < 5e-3:
+                    break
+                bar()
+    else:
+        for _ in alive_progress.alive_it(range(config.iterations), force_tty=True):
+            __, state_params = do_iteration(state_params)
+
 
     print(f"[T] (N k) witness: {math.comb(config.qubitCount, config.target)}")
 
