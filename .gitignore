@@ -4,6 +4,7 @@ src/cache
 # Hydra
 conf/.config.yaml
 src/outputs
+src/multirun
 
 # IDE
 .idea
