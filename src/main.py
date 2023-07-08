@@ -157,10 +157,11 @@ class AllPureStates:
     axes: Axes = None
     _file_prefix: str = ""
 
-    _adam_state: dict = {}
+    _adam_state: dict
 
     def __init__(self, config: DictConfig):
         self._config = config
+        self._adam_state = {}
 
     def construct_random(self):
         random_numbers = numpy.random.rand(2 ** self._config.qubitCount)
