@@ -31,7 +31,7 @@ def run(config: DictConfig):
     print(f"[I] Using {states.__class__}")
 
     print("Grading function...")
-    grad_func = value_and_grad(states.calc_target_sector)
+    grad_func = value_and_grad(states.get_calc_target_sector())
     print("JITing function...")
     grad_func_jitted = jit(grad_func)
 
@@ -80,8 +80,8 @@ def run(config: DictConfig):
     final_sector_length = grad_func_jitted(state_params)[0]
     # states.final_stats(state_params, final_sector_length=final_sector_length)
 
-    print("Calculating symmetric properties of the state...")
-    print(states.symmetric_bins(state_params))
+    # print("Calculating symmetric properties of the state...")
+    # print(states.symmetric_bins(state_params))
 
     if config.export.enabled == 'ask' and input("Export state? [y/n]: ") == "y"\
             or config.export.enabled is True:
@@ -165,7 +165,7 @@ class AllPureStates:
     def construct_random(self):
         random_numbers = numpy.random.rand(2 ** self._config.qubitCount)
         if not self._config.onlyRealValues:
-            random_numbers = random_numbers + 1j * numpy.random.rand(2 ** self._config.qubitCount)
+            random_numbers = self._expand_complex(random_numbers + 1j * numpy.random.rand(2 ** self._config.qubitCount))
 
         return self.normalize(random_numbers)
 
@@ -177,7 +177,8 @@ class AllPureStates:
         os.makedirs(directory, exist_ok=True)
 
         timestamp = int(datetime.timestamp(datetime.now()))
-        file_name = f"{self._file_prefix}result_s{self._config.qubitCount}_t{self._config.target}_{timestamp}_{sector_length}.json"
+        value_prefix = 'real_' if self._config.onlyRealValues else 'complex_'
+        file_name = f"{self._file_prefix}{value_prefix}result_s{self._config.qubitCount}_t{self._config.target}_{timestamp}_{sector_length}.json"
         file_path = os.path.join(directory, file_name)
 
         with open(file_path, 'w') as file:
@@ -212,7 +213,13 @@ class AllPureStates:
 
         return [min_max_bin[1] - min_max_bin[0] for min_max_bin in min_max_bins]
 
-    def calc_target_sector(self, state_params):
+    def get_calc_target_sector(self):
+        if self._config.onlyRealValues:
+            return lambda x: self._calc_target_sector(x)
+        else:
+            return lambda x: self._calc_target_sector(self._contract_complex(x))
+
+    def _calc_target_sector(self, state_params):
         """ obtains sector lengths / weights trough purities and Rains transform
                     faster, and for arbitrary dimensions
                 """
@@ -224,6 +231,17 @@ class AllPureStates:
                 Ap = Ap.at[k].set(Ap[k] + purity(rho_red))
 
         return lambdify(x_symbols_for_target, target_a)(*Ap)
+
+    def _expand_complex(self, arg: np.ndarray) -> numpy.ndarray:
+        res = numpy.empty(2 * arg.size)
+        res[0::2] = numpy.real(arg)
+        res[1::2] = numpy.imag(arg)
+        return res
+
+    def _contract_complex(self, res: np.ndarray):
+        real = res[0::2]
+        imag = res[1::2]
+        return real + 1j * imag
 
     def new_state_params(self, old_params, gradient):
         if self._config.adam.enabled:
@@ -310,15 +328,18 @@ class SymmetricPureStates(AllPureStates):
     def construct_random(self):
         random_numbers = numpy.random.rand(self._config.qubitCount + 1)
         if not self._config.onlyRealValues:
-            random_numbers = random_numbers + 1j * numpy.random.rand(self._config.qubitCount + 1)
+            random_numbers = self._expand_complex(random_numbers + 1j * numpy.random.rand(self._config.qubitCount + 1))
 
         return self.normalize(random_numbers)
 
     def normalize(self, state_params):
-        return super().normalize(state_params * self._sphere_mapping) / self._sphere_mapping
+        sp = state_params if self._config.onlyRealValues else self._contract_complex(state_params)
+        n_sp = super().normalize(sp * self._sphere_mapping) / self._sphere_mapping
+        return n_sp if self._config.onlyRealValues else self._expand_complex(n_sp)
 
     def stats(self, state_params):
-        super().stats(self._construct_dicke(state_params))
+        sp = state_params if self._config.onlyRealValues else self._contract_complex(state_params)
+        super().stats(self._construct_dicke(sp))
 
     def final_stats(self, final_state_params, final_sector_length):
         super().final_stats(self._construct_dicke(final_state_params), final_sector_length)
@@ -326,7 +347,13 @@ class SymmetricPureStates(AllPureStates):
     def symmetric_bins(self, state_params):
         return super().symmetric_bins(self._construct_dicke(state_params))
 
-    def calc_target_sector(self, state_params):
+    def get_calc_target_sector(self):
+        if not self._config.onlyRealValues:
+            return lambda x: self._calc_target_sector(self._contract_complex(x))
+        else:
+            return lambda x: self._calc_target_sector(x)
+
+    def _calc_target_sector(self, state_params):
         """ calculates sector lengths only for a single RDM and multiplies by the RDM count """
         rho = self._construct_dicke(state_params)
         (target_a, x_symbols_for_target) = calc_a(self._config.target, self._config.target)
