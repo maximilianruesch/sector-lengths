@@ -65,7 +65,7 @@ def run(config: DictConfig):
                 sector_lengths.append(sector_length)
                 last_n_sector_lengths = sector_lengths[-10:]
                 if len(last_n_sector_lengths) == 10 \
-                        and numpy.max(last_n_sector_lengths) - numpy.min(last_n_sector_lengths) < 5e-3:
+                        and numpy.max(last_n_sector_lengths) - numpy.min(last_n_sector_lengths) < 1e-3:
                     break
                 bar()
     else:
