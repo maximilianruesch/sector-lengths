@@ -20,6 +20,9 @@ from sympy import symbols, lambdify
 from matplotlib.axes import Axes
 from matplotlib import cm, colors, pyplot as plt
 
+from src.optimizer import Optimizer, GradientDescent, Adam
+
+
 @hydra.main(version_base=None, config_path="../conf", config_name=".config.yaml")
 def run(config: DictConfig):
     states = None
@@ -29,6 +32,12 @@ def run(config: DictConfig):
             case "symmetric": states = SymmetricPureStates(config)
     print(f"State object construct took {t.duration} seconds")
     print(f"[I] Using {states.__class__}")
+
+    if config.adam.enabled:
+        optimizer = Adam(config, states)
+    else:
+        optimizer = GradientDescent(config, states)
+    states.set_optimizer(optimizer)
 
     print("Grading function...")
     grad_func = value_and_grad(states.get_calc_target_sector())
@@ -136,15 +145,14 @@ def all_kRDMs(rho, n, k=2, verbose=False):
 
 class AllPureStates:
     _config: DictConfig
-
-    axes: Axes = None
+    _optimizer: Optimizer = None
     _file_prefix: str = ""
-
-    _adam_state: dict
 
     def __init__(self, config: DictConfig):
         self._config = config
-        self._adam_state = {}
+
+    def set_optimizer(self, optimizer: Optimizer):
+        self._optimizer = optimizer
 
     def construct_random(self):
         random_numbers = numpy.random.rand(2 ** self._config.qubitCount)
@@ -228,70 +236,17 @@ class AllPureStates:
         return real + 1j * imag
 
     def new_state_params(self, old_params, gradient):
-        if self._config.adam.enabled:
-            return self._adam_step(old_params, gradient)
+        if self._optimizer is None:
+            raise ValueError("No optimizer set. Cannot step for new state parameters.")
 
-        # compute tangent projection of gradient
-        tangent_proj = self._proj_u_on_x_tangent(old_params, gradient)
-
-        if self._config.plot:
-            self.axes.quiver(*old_params, *(gradient * 0.1), color="g")
-            self.axes.quiver(*old_params, *(tangent_proj * 0.1), color="r")
-
-        # step along geodesic on hypersphere
-        return self._exp_map(old_params, tangent_proj, step_size=self._config.states.stepSize)
-
-    def _proj_u_on_x_tangent(self, x, u):
-        return u - (np.vdot(x, u) / np.linalg.norm(x)) * x
-
-    def _exp_map(self, cur_point, tangent_direction, step_size):
-        tangent_norm = np.linalg.norm(tangent_direction)
-        return np.cos(tangent_norm * step_size) * cur_point +\
-            np.sin(tangent_norm * step_size) * (tangent_direction / tangent_norm)
-
-    def _adam_step(self, old_params, gradient):
-        config = self._config.adam
-        state = self._adam_state
-
-        # state initialization
-        if len(state) == 0:
-            state["step"] = 0
-            # Exponential moving average of gradient values
-            state["m_t"] = numpy.zeros_like(old_params)
-            # Exponential moving average of squared gradient values
-            state["v_t"] = numpy.zeros_like(old_params)
-
-        state["step"] += 1
-
-        # actual step
-        g_t = self._proj_u_on_x_tangent(old_params, gradient + old_params)
-
-        betas = config.betas
-        m_t = state["m_t"] * betas[0] + (1 - betas[0]) * g_t
-        v_t = state["v_t"] * betas[1] + (1 - betas[1]) * numpy.inner(g_t, g_t)
-        bias_correction1 = 1 - betas[0] ** state["step"]
-        bias_correction2 = 1 - betas[1] ** state["step"]
-
-        # get the direction for ascend
-        direction = (m_t / bias_correction1) / (np.sqrt(v_t / bias_correction2) + config.eps)
-        # step along geodesic on hypersphere
-        new_point = self._exp_map(old_params, direction, step_size=config.learningRate)
-        # transport the exponential averaging to the new point. this is an approximation by changing the tangent space with projection
-        m_t_new = self._proj_u_on_x_tangent(new_point, m_t)
-
-        state["m_t"] = m_t_new
-        state["v_t"] = v_t
-
-        self._adam_state = state
-
-        return self.normalize(new_point)
+        return self._optimizer.step(old_params, gradient)
 
 class SymmetricPureStates(AllPureStates):
     _file_prefix: str = "symm_"
     _sphere_mapping: numpy.ndarray
     _dicke_states: numpy.ndarray
 
-    def __init__(self, config):
+    def __init__(self, config: DictConfig):
         super().__init__(config)
         self._sphere_mapping = numpy.sqrt([math.comb(self._config.qubitCount, k) for k in range(self._config.qubitCount + 1)])
 
