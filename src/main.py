@@ -51,27 +51,10 @@ def run(config: DictConfig):
     if config.plot:
         states.axes = generate_plot(grad_func_jitted, states)
 
-    def do_iteration(it_sp):
-        it_r = grad_func_jitted(it_sp)
+    for _ in alive_progress.alive_it(range(config.iterations), force_tty=True):
+        it_r = grad_func_jitted(state_params)
         print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1])))
-        return it_r[0], states.new_state_params(it_sp, it_r[1])
-
-    if config.iterations == 'auto':
-        sector_lengths = []
-        with alive_progress.alive_bar(force_tty=True) as bar:
-            for _ in range(config.maxIterations):
-                sector_length, state_params = do_iteration(state_params)
-
-                sector_lengths.append(sector_length)
-                last_n_sector_lengths = sector_lengths[-10:]
-                if len(last_n_sector_lengths) == 10 \
-                        and numpy.max(last_n_sector_lengths) - numpy.min(last_n_sector_lengths) < 1e-3:
-                    break
-                bar()
-    else:
-        for _ in alive_progress.alive_it(range(config.iterations), force_tty=True):
-            __, state_params = do_iteration(state_params)
-
+        state_params = states.new_state_params(state_params, it_r[1])
 
     print(f"[T] (N k) witness: {math.comb(config.qubitCount, config.target)}")
 
