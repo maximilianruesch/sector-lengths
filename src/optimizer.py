@@ -28,7 +28,7 @@ class Optimizer:
 
 class GradientDescent(Optimizer):
     """
-    A simple gradient descent algorithm without any state (thus "local).
+    A simple gradient descent algorithm without any state (thus "local").
     """
     def step(self, old_params, gradient):
         # compute tangent projection of gradient
@@ -70,8 +70,16 @@ class Adam(Optimizer):
         betas = config.betas
         m_t = state["m_t"] * betas[0] + (1 - betas[0]) * g_t
         v_t = state["v_t"] * betas[1] + (1 - betas[1]) * numpy.inner(g_t, g_t)
-        bias_correction1 = 1 - betas[0] ** state["step"]
+        bias_correction1 = 1 - betas[0] ** state["step"] # TODO warming schedule as in nesterov paper
         bias_correction2 = 1 - betas[1] ** state["step"]
+
+        if config.nesterov:
+            g_t_hat = g_t / bias_correction1
+            m_t_hat = m_t / bias_correction1
+
+            used_m_t_hat = betas[0] * m_t_hat + (1 - betas[0]) * g_t_hat
+        else:
+            used_m_t_hat = m_t / bias_correction1
 
         if config.amsgrad:
             state["max_v_t"] = numpy.maximum(state["max_v_t"], v_t)
@@ -80,7 +88,7 @@ class Adam(Optimizer):
             used_v_t = v_t
 
         # get the direction for ascend
-        direction = (m_t / bias_correction1) / (np.sqrt(used_v_t / bias_correction2) + config.eps)
+        direction = used_m_t_hat / (np.sqrt(used_v_t / bias_correction2) + config.eps)
         # step along geodesic on hypersphere
         new_point = self._exp_map(old_params, direction, step_size=config.learningRate)
         # transport the exponential averaging to the new point. this is an approximation by changing the tangent space with projection
