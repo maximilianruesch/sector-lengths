@@ -11,7 +11,8 @@ import jax_qgeo
 import numpy
 import qgeo
 import hydra
-from omegaconf import DictConfig
+import wandb
+from omegaconf import OmegaConf, DictConfig
 from about_time import about_time
 from jax import jit, value_and_grad
 from jax.experimental.compilation_cache import compilation_cache as cc
@@ -25,6 +26,10 @@ from src.optimizer import Optimizer, GradientDescent, Adam
 
 @hydra.main(version_base=None, config_path="../conf", config_name=".config.yaml")
 def run(config: DictConfig):
+    if config.report.enabled:
+        wandb.config = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        wandb.init(project='sector-lengths', notes='Quantum sector lengths experiments')
+
     states = None
     with about_time() as t:
         match config.states.stateType:
@@ -62,6 +67,10 @@ def run(config: DictConfig):
 
     for _ in alive_progress.alive_it(range(config.iterations), force_tty=True):
         it_r = grad_func_jitted(state_params)
+
+        if config.report.enabled:
+            wandb.log()
+
         print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1])))
         state_params = states.new_state_params(state_params, it_r[1])
 
