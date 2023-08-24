@@ -5,6 +5,8 @@ src/cache
 conf/.config.yaml
 src/outputs
 src/multirun
+
+# WandB
 src/wandb
 
 # IDE

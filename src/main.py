@@ -27,8 +27,10 @@ from src.optimizer import Optimizer, GradientDescent, Adam
 @hydra.main(version_base=None, config_path="../conf", config_name=".config.yaml")
 def run(config: DictConfig):
     if config.report.enabled:
-        wandb.config = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-        wandb.init(project='sector-lengths', notes='Quantum sector lengths experiments')
+        wandb.init(
+            project='sector-lengths',
+            config=OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        )
 
     states = None
     with about_time() as t:
@@ -69,7 +71,7 @@ def run(config: DictConfig):
         it_r = grad_func_jitted(state_params)
 
         if config.report.enabled:
-            wandb.log()
+            wandb.log({ 'sector': it_r[0] })
 
         print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1])))
         state_params = states.new_state_params(state_params, it_r[1])
@@ -93,6 +95,9 @@ def run(config: DictConfig):
     if config.plot:
         plt.ioff()
         plt.show()
+
+    if config.report.enabled:
+        wandb.finish()
 
     return
 
