@@ -65,7 +65,14 @@ def run(config: DictConfig):
 
     print("Starting random state construct...")
     with about_time() as t2:
-        state_params = states.construct_random()
+        if config.states.kickstartWithSymm and not isinstance(states, SymmetricPureStates):
+            ms = SymmetricPureStates(config)
+            if config.onlyRealValues:
+                state_params = ms._construct_dicke(ms.construct_random())
+            else:
+                state_params = ms._expand_complex(ms._construct_dicke(ms._contract_complex(ms.construct_random())))
+        else:
+            state_params = states.construct_random()
     print(f"Random state construct took {t2.duration} seconds")
 
     # states.stats(state_params)
