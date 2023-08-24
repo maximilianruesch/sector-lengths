@@ -22,6 +22,7 @@ from matplotlib.axes import Axes
 from matplotlib import cm, colors, pyplot as plt
 
 from src.optimizer import Optimizer, GradientDescent, Adam
+from src.scheduler import ConstantScheduler, LinearScheduler, InverseSqrtScheduler, NegSinScheduler
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name=".config.yaml")
@@ -39,6 +40,17 @@ def run(config: DictConfig):
             case "symmetric": states = SymmetricPureStates(config)
     print(f"State object construct took {t.duration} seconds")
     print(f"[I] Using {states.__class__}")
+
+    scheduler = None
+    match config.scheduler.type:
+        case "constant":
+            scheduler = ConstantScheduler(config)
+        case "linear":
+            scheduler = LinearScheduler(config)
+        case "inverseSqrt":
+            scheduler = InverseSqrtScheduler(config)
+        case "negSin":
+            scheduler = NegSinScheduler(config)
 
     if config.adam.enabled:
         optimizer = Adam(config, states)
@@ -67,14 +79,18 @@ def run(config: DictConfig):
     if config.plot:
         states.axes = generate_plot(grad_func_jitted, states)
 
-    for _ in alive_progress.alive_it(range(config.iterations), force_tty=True):
+    for step in alive_progress.alive_it(range(config.iterations), force_tty=True):
         it_r = grad_func_jitted(state_params)
 
+        lr = scheduler.getLR(step)
         if config.report.enabled:
-            wandb.log({ 'sector': it_r[0] })
+            wandb.log({
+                'sector': it_r[0],
+                'lr': lr
+            })
 
-        print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1])))
-        state_params = states.new_state_params(state_params, it_r[1])
+        print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1]), lr))
+        state_params = states.new_state_params(state_params, it_r[1], step_size=lr)
 
     print(f"[T] (N k) witness: {math.comb(config.qubitCount, config.target)}")
 
@@ -249,11 +265,11 @@ class AllPureStates:
         imag = res[1::2]
         return real + 1j * imag
 
-    def new_state_params(self, old_params, gradient):
+    def new_state_params(self, old_params, gradient, step_size):
         if self._optimizer is None:
             raise ValueError("No optimizer set. Cannot step for new state parameters.")
 
-        return self._optimizer.step(old_params, gradient)
+        return self._optimizer.step(old_params, gradient, step_size=step_size)
 
 class SymmetricPureStates(AllPureStates):
     _file_prefix: str = "symm_"
@@ -321,8 +337,8 @@ class SymmetricPureStates(AllPureStates):
 
         return lambdify(x_symbols_for_target, target_a)(*Ap) * math.comb(self._config.qubitCount, self._config.target)
 
-    def new_state_params(self, old_params, gradient):
-        return self.normalize(super().new_state_params(old_params=super().normalize(old_params), gradient=gradient))
+    def new_state_params(self, old_params, gradient, step_size):
+        return self.normalize(super().new_state_params(old_params=super().normalize(old_params), gradient=gradient, step_size=step_size))
 
 def generate_plot(sector_len_f, states):
     resolution = 100

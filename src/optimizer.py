@@ -22,7 +22,7 @@ class Optimizer:
         return np.cos(tangent_norm * step_size) * cur_point +\
             np.sin(tangent_norm * step_size) * (tangent_direction / tangent_norm)
 
-    def step(self, old_params, gradient):
+    def step(self, old_params, gradient, step_size):
         raise NotImplementedError("The step function is not implemented in the general `Optimizer`")
 
 
@@ -30,12 +30,12 @@ class GradientDescent(Optimizer):
     """
     A simple gradient descent algorithm without any state (thus "local").
     """
-    def step(self, old_params, gradient):
+    def step(self, old_params, gradient, step_size):
         # compute tangent projection of gradient
         tangent_proj = self._proj_u_on_x_tangent(old_params, gradient)
 
         # step along geodesic on hypersphere
-        return self._exp_map(old_params, tangent_proj, step_size=self._config.states.stepSize)
+        return self._exp_map(old_params, tangent_proj, step_size=step_size)
 
 
 class Adam(Optimizer):
@@ -48,7 +48,7 @@ class Adam(Optimizer):
         super().__init__(config, states)
         self._adam_state = {}
 
-    def step(self, old_params, gradient):
+    def step(self, old_params, gradient, step_size):
         config = self._config.adam
         state = self._adam_state
 
@@ -90,7 +90,7 @@ class Adam(Optimizer):
         # get the direction for ascend
         direction = used_m_t_hat / (np.sqrt(used_v_t / bias_correction2) + config.eps)
         # step along geodesic on hypersphere
-        new_point = self._exp_map(old_params, direction, step_size=config.learningRate)
+        new_point = self._exp_map(old_params, direction, step_size=step_size)
         # transport the exponential averaging to the new point. this is an approximation by changing the tangent space with projection
         m_t_new = self._proj_u_on_x_tangent(new_point, m_t)
 
