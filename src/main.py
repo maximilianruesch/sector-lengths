@@ -14,7 +14,7 @@ import hydra
 import wandb
 from omegaconf import OmegaConf, DictConfig
 from about_time import about_time
-from jax import jit, value_and_grad
+from jax import jit, value_and_grad, random, config as jconfig
 from jax.experimental.compilation_cache import compilation_cache as cc
 from jax_qgeo import make_dm, purity, qcode_enum as qce
 from sympy import symbols, lambdify
@@ -27,6 +27,8 @@ from src.scheduler import ConstantScheduler, LinearScheduler, InverseSqrtSchedul
 
 @hydra.main(version_base=None, config_path="../conf", config_name=".config.yaml")
 def run(config: DictConfig):
+    jconfig.update("jax_enable_x64", config.float64)
+
     if config.report.enabled:
         wandb.init(
             project='sector-lengths',
@@ -302,9 +304,14 @@ class SymmetricPureStates(AllPureStates):
         return np.dot(super().normalize(state_params) / self._sphere_mapping, self._dicke_states)
 
     def construct_random(self):
-        random_numbers = numpy.random.rand(self._config.qubitCount + 1)
+        def rand_nums(subkey):
+            # Note that this will not actually be x64 if JAX x64 mode is not enabled
+            return random.uniform(subkey, (self._config.qubitCount + 1,), dtype=np.float64)
+
+        subkey_1, subkey_2 = random.split(random.PRNGKey(numpy.random.randint(1_000_000_000)), 2)
+        random_numbers = rand_nums(subkey_1)
         if not self._config.onlyRealValues:
-            random_numbers = self._expand_complex(random_numbers + 1j * numpy.random.rand(self._config.qubitCount + 1))
+            random_numbers = self._expand_complex(random_numbers + 1j * rand_nums(subkey_2))
 
         return self.normalize(random_numbers)
 
