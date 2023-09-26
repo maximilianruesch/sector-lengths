@@ -81,32 +81,42 @@ def run(config: DictConfig):
     with about_time() as lower_timer:
         lowered = grad_func_jitted.lower(state_params)
     print(f"[TIME] Lowering took {lower_timer.duration} seconds")
+    if config.report.enabled:
+        wandb.run.summary["lowering_time"] = lower_timer.duration
     with about_time() as compile_timer:
         compiled = lowered.compile()
     print(f"[TIME] Compilation took {compile_timer.duration} seconds")
+    if config.report.enabled:
+        wandb.run.summary["compile_time"] = compile_timer.duration
     grad_func_jitted = compiled
 
     print("Initially grading...")
     with about_time() as grad_time:
         grad_func_jitted(state_params)[1].block_until_ready()
     print(f"Initially grading took {grad_time.duration} seconds")
+    if config.report.enabled:
+        wandb.run.summary["grading_time"] = grad_time.duration
     print("-----------------------------------------------------------------")
 
     if config.plot:
         states.axes = generate_plot(grad_func_jitted, states)
 
-    for step in alive_progress.alive_it(range(config.iterations), force_tty=True):
-        it_r = grad_func_jitted(state_params)
+    with about_time() as optimize_timer:
+        for step in alive_progress.alive_it(range(config.iterations), force_tty=True):
+            it_r = grad_func_jitted(state_params)
 
-        lr = scheduler.getLR(step)
-        if config.report.enabled:
-            wandb.log({
-                'sector': it_r[0],
-                'lr': lr
-            })
+            lr = scheduler.getLR(step)
+            if config.report.enabled:
+                wandb.log({
+                    'sector': it_r[0],
+                    'lr': lr
+                })
 
-        print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1]), lr))
-        state_params = states.new_state_params(state_params, it_r[1], step_size=lr)
+            print((it_r[0], numpy.average(it_r[1]), numpy.linalg.norm(it_r[1]), lr))
+            state_params = states.new_state_params(state_params, it_r[1], step_size=lr)
+    print(f"Optimizing took {optimize_timer.duration} seconds")
+    if config.report.enabled:
+        wandb.run.summary["optimize_time"] = optimize_timer.duration
 
     print(f"[T] (N k) witness: {math.comb(config.qubitCount, config.target)}")
 
