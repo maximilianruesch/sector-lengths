@@ -77,7 +77,14 @@ def run(config: DictConfig):
             state_params = states.construct_random()
     print(f"Random state construct took {t2.duration} seconds")
 
-    # states.stats(state_params)
+    print("Starting lower and compile...")
+    with about_time() as lower_timer:
+        lowered = grad_func_jitted.lower(state_params)
+    print(f"[TIME] Lowering took {lower_timer.duration} seconds")
+    with about_time() as compile_timer:
+        compiled = lowered.compile()
+    print(f"[TIME] Compilation took {compile_timer.duration} seconds")
+    grad_func_jitted = compiled
 
     print("Initially grading...")
     with about_time() as grad_time:
