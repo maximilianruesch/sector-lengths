@@ -65,17 +65,31 @@ def run(config: DictConfig):
     print("JITing function...")
     grad_func_jitted = jit(grad_func)
 
-    print("Starting random state construct...")
+    print("Starting state loading...")
     with about_time() as t2:
-        if config.states.kickstartWithSymm and not isinstance(states, SymmetricPureStates):
-            ms = SymmetricPureStates(config)
-            if config.onlyRealValues:
-                state_params = ms._construct_dicke(ms.construct_random())
-            else:
-                state_params = ms._expand_complex(ms._construct_dicke(ms._contract_complex(ms.construct_random())))
-        else:
+        if config.states.init == "random":
             state_params = states.construct_random()
-    print(f"Random state construct took {t2.duration} seconds")
+        elif config.states.init == "real":
+            if config.onlyRealValues:
+                state_params = states.construct_random()
+            else:
+                print(f"Starting state with real values...")
+                state_params = states._expand_complex(np.real(states._contract_complex(states.construct_random())))
+        elif config.states.init == "symmetric":
+            if isinstance(states, SymmetricPureStates):
+                state_params = states.construct_random()
+            else:
+                print(f"Kickstarting state with symmetric...")
+                ms = SymmetricPureStates(config)
+                if config.onlyRealValues:
+                    state_params = ms._construct_dicke(ms.construct_random())
+                else:
+                    state_params = ms._expand_complex(ms._construct_dicke(ms._contract_complex(ms.construct_random())))
+        else:
+            print(f"Trying to open state from: {config.states.init}")
+            with open(config.states.init) as f:
+                state_params = numpy.array(json.load(f)['state'], dtype=numpy.float64)
+    print(f"State loading took {t2.duration} seconds")
 
     print("Starting lower and compile...")
     with about_time() as lower_timer:
