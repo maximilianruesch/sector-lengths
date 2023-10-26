@@ -59,8 +59,6 @@ class Adam(Optimizer):
             state["m_t"] = numpy.zeros_like(old_params)
             # Exponential moving average of squared gradient values
             state["v_t"] = numpy.zeros_like(old_params)
-            if config.amsgrad:
-                state["max_v_t"] = numpy.zeros_like(old_params)
 
         state["step"] += 1
 
@@ -81,14 +79,8 @@ class Adam(Optimizer):
         else:
             used_m_t_hat = m_t / bias_correction1
 
-        if config.amsgrad:
-            state["max_v_t"] = numpy.maximum(state["max_v_t"], v_t)
-            used_v_t = state["max_v_t"]
-        else:
-            used_v_t = v_t
-
         # get the direction for ascend
-        direction = used_m_t_hat / (np.sqrt(used_v_t / bias_correction2) + config.eps)
+        direction = used_m_t_hat / (np.sqrt(v_t / bias_correction2) + config.eps)
         # step along geodesic on hypersphere
         new_point = self._exp_map(old_params, direction, step_size=step_size)
         # transport the exponential averaging to the new point. this is an approximation by changing the tangent space with projection
