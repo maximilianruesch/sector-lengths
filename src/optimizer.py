@@ -68,25 +68,17 @@ class Adam(Optimizer):
         betas = config.betas
         m_t = state["m_t"] * betas[0] + (1 - betas[0]) * g_t
         v_t = state["v_t"] * betas[1] + (1 - betas[1]) * numpy.inner(g_t, g_t)
-        bias_correction1 = 1 - betas[0] ** state["step"] # TODO warming schedule as in nesterov paper
+        bias_correction1 = 1 - betas[0] ** state["step"]
         bias_correction2 = 1 - betas[1] ** state["step"]
-
-        if config.nesterov:
-            g_t_hat = g_t / bias_correction1
-            m_t_hat = m_t / bias_correction1
-
-            used_m_t_hat = betas[0] * m_t_hat + (1 - betas[0]) * g_t_hat
-        else:
-            used_m_t_hat = m_t / bias_correction1
+        m_t_hat = m_t / bias_correction1
+        v_t_hat = v_t / bias_correction2
 
         # get the direction for ascend
-        direction = used_m_t_hat / (np.sqrt(v_t / bias_correction2) + config.eps)
+        direction = m_t_hat / (np.sqrt(v_t_hat) + config.eps)
         # step along geodesic on hypersphere
         new_point = self._exp_map(old_params, direction, step_size=step_size)
         # transport the exponential averaging to the new point. this is an approximation by changing the tangent space with projection
-        m_t_new = self._proj_u_on_x_tangent(new_point, m_t)
-
-        state["m_t"] = m_t_new
+        state["m_t"] = self._proj_u_on_x_tangent(new_point, m_t)
         state["v_t"] = v_t
 
         self._adam_state = state
