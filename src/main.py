@@ -137,10 +137,6 @@ def run(config: DictConfig):
     # Final state normalization
     state_params = states.normalize(state_params)
     final_sector_length = grad_func_jitted(state_params)[0]
-    # states.final_stats(state_params, final_sector_length=final_sector_length)
-
-    # print("Calculating symmetric properties of the state...")
-    # print(states.symmetric_bins(state_params))
 
     if config.export.enabled == 'ask' and input("Export state? [y/n]: ") == "y"\
             or config.export.enabled is True:
@@ -159,7 +155,7 @@ def run(config: DictConfig):
 
 
 @partial(jit, static_argnums=(1,2,))
-def calc_partial_trace(rho, trace_over, n):  # former ptrace_dim
+def calc_partial_trace(rho, trace_over, n):
     """ partial trace over subsystems specified in trace_over for arbitrary
         n-quDit systems (also of heterogeneous dimensions)
         e.g. ptrace(rho_ABC, [1]) = rhoA_C
@@ -283,8 +279,8 @@ class AllPureStates:
 
     def _calc_target_sector(self, state_params):
         """ obtains sector lengths / weights trough purities and Rains transform
-                    faster, and for arbitrary dimensions
-                """
+            faster, and for arbitrary dimensions
+        """
         (target_a, x_symbols_for_target) = calc_a(self._config.qubitCount, self._config.target)
 
         Ap = np.zeros(self._config.target + 1)
@@ -425,8 +421,3 @@ if __name__ == '__main__':
     cc.initialize_cache("cache")
 
     run()
-
-"""
-Spherical Manifolds: https://eprints.whiterose.ac.uk/78407/1/SphericalFinal.pdf
-Riemann Optimization: https://andbloch.github.io/Stochastic-Gradient-Descent-on-Riemannian-Manifolds/
-"""
